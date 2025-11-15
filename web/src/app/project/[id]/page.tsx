@@ -302,7 +302,19 @@ export default function ProjectDetailPage() {
 								<div className="text-center">
 									<Link href={`/profile/${user.id}`}>
 										<Avatar className="w-20 h-20 border-4 border-blue-100 mx-auto mb-4 cursor-pointer hover:border-blue-200 transition-colors">
-											<AvatarImage src={user.avatar} alt={user.name} />
+											<AvatarImage
+												src={
+													user.avatar
+														? `http://localhost:3001${user.avatar}`
+														: undefined
+												}
+												alt={user.name}
+												onError={(e) => {
+													e.currentTarget.style.display = "none";
+													e.currentTarget.parentElement!.innerHTML =
+														'<svg class="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
+												}}
+											/>
 											<AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-2xl">
 												{user.name.charAt(0).toUpperCase()}
 											</AvatarFallback>

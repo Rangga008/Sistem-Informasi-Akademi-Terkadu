@@ -22,7 +22,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
 	(response) => response,
 	(error) => {
-		if (error.response?.status === 401) {
+		// Only redirect to login for auth errors on protected routes
+		// Allow 401 errors for public routes like profile/project viewing and auth/profile check
+		if (
+			error.response?.status === 401 &&
+			!error.config.url?.includes("/profile/") &&
+			!error.config.url?.includes("/project/") &&
+			!error.config.url?.includes("/auth/profile")
+		) {
 			localStorage.removeItem("token");
 			window.location.href = "/login";
 		}

@@ -82,7 +82,7 @@ export default function SearchPage() {
 			const [topStudentsRes, usersRes, projectsRes] = await Promise.all([
 				api.get("/users/top-students?limit=10").catch(() => ({ data: [] })), // Top students by project count
 				api.get("/users/search?q=").catch(() => ({ data: [] })), // Public endpoint for all students
-				api.get("/projects").catch(() => ({ data: [] })), // Public endpoint for all projects (highlight only)
+				api.get("/projects?highlight=true").catch(() => ({ data: [] })), // Public endpoint for highlight projects only
 			]);
 			setTopStudents(topStudentsRes.data || []);
 			setSearchResults({
