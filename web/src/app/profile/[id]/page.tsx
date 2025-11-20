@@ -37,7 +37,23 @@ import {
 	Award,
 	ChevronLeft,
 } from "lucide-react";
-import { api, getCurrentUser } from "@/lib/api";
+import {
+	api,
+	getCurrentUser,
+	getFollowStats,
+	getFollowersList,
+	getFollowingList,
+} from "@/lib/api";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import FollowButton from "@/components/follow-button";
+import LikeButton from "@/components/like-button";
 
 interface User {
 	id: string;
@@ -93,6 +109,13 @@ export default function ProfilePage() {
 		website: "",
 		location: "",
 	});
+	const [followersCount, setFollowersCount] = useState<number>(0);
+	const [followingCount, setFollowingCount] = useState<number>(0);
+	const [followersOpen, setFollowersOpen] = useState(false);
+	const [followingOpen, setFollowingOpen] = useState(false);
+	const [followers, setFollowers] = useState<Array<User>>([]);
+	const [following, setFollowing] = useState<Array<User>>([]);
+	const [listLoading, setListLoading] = useState(false);
 
 	useEffect(() => {
 		loadProfile();
@@ -128,6 +151,13 @@ export default function ProfilePage() {
 				isOwnProfile: currentUser?.id === userId,
 			});
 
+			// Fetch follow stats (public)
+			try {
+				const stats = await getFollowStats(userId);
+				setFollowersCount(stats.followers ?? 0);
+				setFollowingCount(stats.following ?? 0);
+			} catch {}
+
 			// Initialize edit form
 			setEditForm({
 				bio: user.bio || "",
@@ -142,6 +172,34 @@ export default function ProfilePage() {
 			router.push("/search");
 		} finally {
 			setLoading(false);
+		}
+	};
+
+	const openFollowersDialog = async () => {
+		setFollowersOpen(true);
+		if (!profileData) return;
+		setListLoading(true);
+		try {
+			const list = await getFollowersList(profileData.user.id);
+			setFollowers(list);
+		} catch {
+			setFollowers([]);
+		} finally {
+			setListLoading(false);
+		}
+	};
+
+	const openFollowingDialog = async () => {
+		setFollowingOpen(true);
+		if (!profileData) return;
+		setListLoading(true);
+		try {
+			const list = await getFollowingList(profileData.user.id);
+			setFollowing(list);
+		} catch {
+			setFollowing([]);
+		} finally {
+			setListLoading(false);
 		}
 	};
 
@@ -217,6 +275,48 @@ export default function ProfilePage() {
 		}
 	};
 
+	const [generatingCV, setGeneratingCV] = useState(false);
+
+	const generateCV = async () => {
+		if (!profileData) return;
+		setGeneratingCV(true);
+		try {
+			const payload = {
+				user: profileData.user,
+				skills: profileData.skills,
+				projects: profileData.projects,
+			};
+
+			const res = await fetch("/api/generate-cv", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			});
+
+			const data = await res.json();
+			if (data.ok && data.html) {
+				// Open printable window with generated HTML
+				const w = window.open("", "_blank");
+				if (w) {
+					w.document.write(
+						`<!doctype html><html><head><meta charset="utf-8"><title>CV - ${profileData.user.name}</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:system-ui, -apple-system, Roboto, 'Segoe UI', Arial; padding:24px">${data.html}<div style="margin-top:24px"><button onclick="window.print()" style="padding:8px 12px;border-radius:6px;background:#2563EB;color:white;border:none;cursor:pointer">Cetak / Simpan PDF</button></div></body></html>`
+					);
+					w.document.close();
+				} else {
+					alert("CV generated. Please enable popups to view it.");
+				}
+			} else {
+				console.error("CV generation failed", data);
+				alert("Gagal membuat CV. Coba lagi nanti.");
+			}
+		} catch (err) {
+			console.error("generateCV error", err);
+			alert("Terjadi kesalahan saat generate CV");
+		} finally {
+			setGeneratingCV(false);
+		}
+	};
+
 	if (loading) {
 		return (
 			<div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -269,20 +369,50 @@ export default function ProfilePage() {
 								<p className="text-sm text-gray-600">
 									@{user.email ? user.email.split("@")[0] : "unknown"}
 								</p>
+								<div className="flex gap-2 mt-2">
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={openFollowersDialog}
+									>
+										Pengikut: {followersCount}
+									</Button>
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={openFollowingDialog}
+									>
+										Mengikuti: {followingCount}
+									</Button>
+								</div>
 							</div>
 						</div>
 
 						<div className="flex items-center space-x-2">
 							{isOwnProfile && (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => setEditing(!editing)}
-									className="flex items-center"
-								>
-									<Edit3 className="w-4 h-4 mr-2" />
-									{editing ? "Batal Edit" : "Edit Profile"}
-								</Button>
+								<>
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={() => setEditing(!editing)}
+										className="flex items-center"
+									>
+										<Edit3 className="w-4 h-4 mr-2" />
+										{editing ? "Batal Edit" : "Edit Profile"}
+									</Button>
+
+									<Button
+										variant="default"
+										size="sm"
+										onClick={async () => await generateCV()}
+										className="flex items-center"
+										id="generate-cv-btn"
+										disabled={generatingCV}
+									>
+										<Award className="w-4 h-4 mr-2" />
+										{generatingCV ? "Membuat..." : "Generate CV"}
+									</Button>
+								</>
 							)}
 							<Button
 								variant="outline"
@@ -293,6 +423,7 @@ export default function ProfilePage() {
 								<Share2 className="w-4 h-4 mr-2" />
 								Bagikan
 							</Button>
+							{!isOwnProfile && <FollowButton targetUserId={user.id} />}
 						</div>
 					</div>
 				</div>
@@ -316,7 +447,7 @@ export default function ProfilePage() {
 												}
 												alt={user.name}
 											/>
-											<AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-4xl">
+											<AvatarFallback className="bg-linear-to-br from-blue-500 to-purple-500 text-white text-4xl">
 												{user.name ? user.name.charAt(0).toUpperCase() : "?"}
 											</AvatarFallback>
 										</Avatar>
@@ -521,6 +652,125 @@ export default function ProfilePage() {
 											<div className="text-sm text-gray-600">Projects</div>
 										</div>
 									</div>
+									{/* Followers Dialog */}
+									<Dialog open={followersOpen} onOpenChange={setFollowersOpen}>
+										<DialogContent>
+											<DialogHeader>
+												<DialogTitle>Daftar Pengikut</DialogTitle>
+												<DialogDescription>
+													Pengguna yang mengikuti {profileData?.user.name}
+												</DialogDescription>
+											</DialogHeader>
+											<div className="max-h-80 overflow-y-auto space-y-3">
+												{listLoading ? (
+													<div className="text-sm text-gray-500">Memuat...</div>
+												) : followers.length > 0 ? (
+													followers.map((u) => (
+														<Link
+															key={u.id}
+															href={`/profile/${u.id}`}
+															onClick={() => setFollowersOpen(false)}
+															className="flex items-center gap-3 p-2 rounded hover:bg-gray-50"
+														>
+															<Avatar className="w-8 h-8">
+																<AvatarImage
+																	src={
+																		u.avatar
+																			? `http://localhost:3001${u.avatar}`
+																			: undefined
+																	}
+																	alt={u.name}
+																/>
+																<AvatarFallback>
+																	{u.name?.charAt(0).toUpperCase()}
+																</AvatarFallback>
+															</Avatar>
+															<div>
+																<div className="text-sm font-medium">
+																	{u.name}
+																</div>
+																<div className="text-xs text-gray-500">
+																	{u.email}
+																</div>
+															</div>
+														</Link>
+													))
+												) : (
+													<div className="text-sm text-gray-500">
+														Belum ada pengikut.
+													</div>
+												)}
+											</div>
+											<DialogFooter>
+												<Button
+													variant="outline"
+													onClick={() => setFollowersOpen(false)}
+												>
+													Tutup
+												</Button>
+											</DialogFooter>
+										</DialogContent>
+									</Dialog>
+
+									{/* Following Dialog */}
+									<Dialog open={followingOpen} onOpenChange={setFollowingOpen}>
+										<DialogContent>
+											<DialogHeader>
+												<DialogTitle>Daftar Mengikuti</DialogTitle>
+												<DialogDescription>
+													Pengguna yang diikuti oleh {profileData?.user.name}
+												</DialogDescription>
+											</DialogHeader>
+											<div className="max-h-80 overflow-y-auto space-y-3">
+												{listLoading ? (
+													<div className="text-sm text-gray-500">Memuat...</div>
+												) : following.length > 0 ? (
+													following.map((u) => (
+														<Link
+															key={u.id}
+															href={`/profile/${u.id}`}
+															onClick={() => setFollowingOpen(false)}
+															className="flex items-center gap-3 p-2 rounded hover:bg-gray-50"
+														>
+															<Avatar className="w-8 h-8">
+																<AvatarImage
+																	src={
+																		u.avatar
+																			? `http://localhost:3001${u.avatar}`
+																			: undefined
+																	}
+																	alt={u.name}
+																/>
+																<AvatarFallback>
+																	{u.name?.charAt(0).toUpperCase()}
+																</AvatarFallback>
+															</Avatar>
+															<div>
+																<div className="text-sm font-medium">
+																	{u.name}
+																</div>
+																<div className="text-xs text-gray-500">
+																	{u.email}
+																</div>
+															</div>
+														</Link>
+													))
+												) : (
+													<div className="text-sm text-gray-500">
+														Belum mengikuti siapapun.
+													</div>
+												)}
+											</div>
+											<DialogFooter>
+												<Button
+													variant="outline"
+													onClick={() => setFollowingOpen(false)}
+												>
+													Tutup
+												</Button>
+											</DialogFooter>
+										</DialogContent>
+									</Dialog>
 								</div>
 
 								{/* Join Date */}
@@ -690,10 +940,7 @@ export default function ProfilePage() {
 															</span>
 														</div>
 														<div className="flex items-center space-x-2">
-															<Button variant="outline" size="sm">
-																<Heart className="w-4 h-4 mr-1" />
-																Suka
-															</Button>
+															<LikeButton projectId={project.id} />
 															<Button variant="outline" size="sm">
 																<Share2 className="w-4 h-4 mr-1" />
 																Bagikan

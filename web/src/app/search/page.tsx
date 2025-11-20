@@ -27,6 +27,9 @@ import {
 	X,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import ImageWithFallback from "@/components/ui/image-with-fallback";
+import FollowButton from "@/components/follow-button";
+import LikeButton from "@/components/like-button";
 
 interface User {
 	id: string;
@@ -162,37 +165,38 @@ export default function SearchPage() {
 		setFilter("all");
 	};
 
-	const filteredResults = () => {
-		let results: (User | Project)[] = [];
+	// Separate filtered lists for users and projects so we can render them in
+	// their own responsive grids and avoid mixed-card height misalignment.
+	const filteredUsers = () => {
+		if (filter === "projects") return [] as User[];
+		// Return users as provided by the API. Additional local filtering
+		// (by searchQuery) is handled server-side or in handleSearch fallback.
+		return searchResults.users || [];
+	};
 
-		if (filter === "all" || filter === "users") {
-			results = [...results, ...searchResults.users];
-		}
-		if (filter === "all" || filter === "projects") {
-			results = [...results, ...searchResults.projects];
-		}
+	const filteredProjects = () => {
+		if (filter === "users") return [] as Project[];
+
+		let projects = searchResults.projects || [];
 
 		// Apply skill filters for projects
-		if (selectedSkills.length > 0 && filter !== "users") {
-			results = results.filter((item) => {
-				if ("keywords" in item) {
-					return selectedSkills.some((skill) =>
-						item.keywords.some((keyword) =>
-							keyword.toLowerCase().includes(skill.toLowerCase())
-						)
-					);
-				}
-				return true;
-			});
+		if (selectedSkills.length > 0) {
+			projects = projects.filter((project) =>
+				(project.keywords || []).some((k) =>
+					selectedSkills.some((skill) =>
+						k.toLowerCase().includes(skill.toLowerCase())
+					)
+				)
+			);
 		}
 
-		return results;
+		return projects;
 	};
 
 	const renderTopStudentCard = (user: User) => (
 		<Card
 			key={user.id}
-			className="group hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-md bg-white flex-shrink-0 w-64"
+			className="group hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-md bg-white shrink-0 w-64"
 		>
 			<CardContent className="p-4">
 				<div className="flex items-center space-x-3">
@@ -202,8 +206,12 @@ export default function SearchPage() {
 								user.avatar ? `http://localhost:3001${user.avatar}` : undefined
 							}
 							alt={user.name}
+							onError={(e) => {
+								(e.currentTarget as HTMLImageElement).src =
+									"/placeholder-image.svg";
+							}}
 						/>
-						<AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-sm">
+						<AvatarFallback className="bg-linear-to-br from-blue-500 to-purple-500 text-white text-sm">
 							{user.name.charAt(0).toUpperCase()}
 						</AvatarFallback>
 					</Avatar>
@@ -238,18 +246,22 @@ export default function SearchPage() {
 	const renderUserCard = (user: User) => (
 		<Card
 			key={user.id}
-			className="group hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white"
+			className="group hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white h-full flex flex-col"
 		>
-			<CardContent className="p-6">
+			<CardContent className="p-6 flex flex-col flex-1">
 				<div className="flex items-start space-x-4">
-					<Avatar className="w-16 h-16 border-2 border-blue-100">
+					<Avatar className="w-16 h-16 border-2 border-blue-100 shrink-0">
 						<AvatarImage
 							src={
 								user.avatar ? `http://localhost:3001${user.avatar}` : undefined
 							}
 							alt={user.name}
+							onError={(e) => {
+								(e.currentTarget as HTMLImageElement).src =
+									"/placeholder-image.svg";
+							}}
 						/>
-						<AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-lg">
+						<AvatarFallback className="bg-linear-to-br from-blue-500 to-purple-500 text-white text-lg">
 							{user.name.charAt(0).toUpperCase()}
 						</AvatarFallback>
 					</Avatar>
@@ -270,32 +282,29 @@ export default function SearchPage() {
 								{user.bio}
 							</p>
 						)}
+					</div>
+				</div>
 
-						<div className="flex items-center justify-between">
-							<div className="flex items-center space-x-4 text-sm text-gray-500">
-								<span className="flex items-center">
-									<Eye className="w-4 h-4 mr-1" />
-									Profile
-								</span>
-							</div>
+				{/* Actions pinned to bottom for consistent card heights */}
+				<div className="mt-auto flex items-center justify-between pt-4 border-t border-transparent">
+					<div className="flex items-center space-x-4 text-sm text-gray-500">
+						<span className="flex items-center">
+							<Eye className="w-4 h-4 mr-1" />
+							Profile
+						</span>
+					</div>
 
-							<div className="flex items-center space-x-2">
-								<Button
-									variant="outline"
-									size="sm"
-									className="hover:bg-blue-50"
-								>
-									<Heart className="w-4 h-4 mr-1" />
-									Follow
-								</Button>
-								<Link href={`/profile/${user.id}`}>
-									<Button size="sm" className="bg-blue-600 hover:bg-blue-700">
-										<ExternalLink className="w-4 h-4 mr-1" />
-										Lihat Profile
-									</Button>
-								</Link>
-							</div>
-						</div>
+					<div className="flex items-center gap-2">
+						<FollowButton targetUserId={user.id} />
+						<Link href={`/profile/${user.id}`}>
+							<Button
+								size="sm"
+								className="bg-blue-600 hover:bg-blue-700 h-9 px-3 flex items-center text-white"
+							>
+								<ExternalLink className="w-4 h-4 mr-2" />
+								<span className="text-sm">Lihat</span>
+							</Button>
+						</Link>
 					</div>
 				</div>
 			</CardContent>
@@ -305,12 +314,12 @@ export default function SearchPage() {
 	const renderProjectCard = (project: Project) => (
 		<Card
 			key={project.id}
-			className="group hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white overflow-hidden"
+			className="group hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white overflow-hidden h-full flex flex-col"
 		>
 			{/* Project Image */}
 			{project.images && project.images.length > 0 ? (
-				<div className="relative h-48 bg-gray-200 overflow-hidden">
-					<img
+				<div className="relative h-48 bg-gray-200 overflow-hidden shrink-0">
+					<ImageWithFallback
 						src={`http://localhost:3001${project.images[0]}`}
 						alt={project.title}
 						className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -323,7 +332,7 @@ export default function SearchPage() {
 					)}
 				</div>
 			) : (
-				<div className="h-48 bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+				<div className="h-48 bg-linear-to-br from-blue-100 to-purple-100 flex items-center justify-center">
 					<Briefcase className="w-12 h-12 text-blue-400" />
 				</div>
 			)}
@@ -377,14 +386,7 @@ export default function SearchPage() {
 					</div>
 
 					<div className="flex items-center space-x-2">
-						<Button
-							variant="outline"
-							size="sm"
-							className="hover:bg-red-50 hover:border-red-200"
-						>
-							<Heart className="w-4 h-4 mr-1" />
-							Suka
-						</Button>
+						<LikeButton projectId={project.id} />
 						<Button
 							variant="outline"
 							size="sm"
@@ -550,46 +552,82 @@ export default function SearchPage() {
 						{/* Results Count */}
 						<div className="mb-6">
 							<p className="text-gray-600">
-								Ditemukan {filteredResults().length} hasil
+								Ditemukan {filteredUsers().length + filteredProjects().length}{" "}
+								hasil
 								{searchQuery && ` untuk "${searchQuery}"`}
 							</p>
 						</div>
 
-						{/* Results Grid */}
-						<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-							{filteredResults().map((item) => {
-								if ("role" in item) {
-									// It's a User
-									return renderUserCard(item);
-								} else {
-									// It's a Project
-									return renderProjectCard(item);
-								}
-							})}
-						</div>
+						{/* Results Sections - separate Users and Projects */}
+						{(() => {
+							const users = filteredUsers();
+							const projects = filteredProjects();
+							const total = users.length + projects.length;
+
+							return (
+								<>
+									{/* Profiles Section */}
+									{users.length > 0 && (
+										<div className="mb-8">
+											<div className="flex items-center justify-between mb-4">
+												<h2 className="text-xl font-semibold text-gray-900">
+													Siswa / Profiles
+												</h2>
+												<p className="text-sm text-gray-600">
+													{users.length} ditemukan
+												</p>
+											</div>
+											<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+												{users.map((u) => renderUserCard(u))}
+											</div>
+										</div>
+									)}
+
+									{/* Projects Section */}
+									{projects.length > 0 && (
+										<div className="mb-8">
+											<div className="flex items-center justify-between mb-4">
+												<h2 className="text-xl font-semibold text-gray-900">
+													Project
+												</h2>
+												<p className="text-sm text-gray-600">
+													{projects.length} ditemukan
+												</p>
+											</div>
+											<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+												{projects.map((p) => renderProjectCard(p))}
+											</div>
+										</div>
+									)}
+
+									{/* If nothing, show empty state handled below */}
+								</>
+							);
+						})()}
 
 						{/* Empty State */}
-						{filteredResults().length === 0 && !loading && (
-							<div className="text-center py-20">
-								<Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-								<h3 className="text-xl font-semibold text-gray-900 mb-2">
-									Tidak ada hasil ditemukan
-								</h3>
-								<p className="text-gray-600 mb-4">
-									Coba ubah kata kunci pencarian atau filter yang berbeda
-								</p>
-								<Button
-									onClick={() => {
-										setSearchQuery("");
-										setSelectedSkills([]);
-										setFilter("all");
-										loadInitialContent();
-									}}
-								>
-									Reset Pencarian
-								</Button>
-							</div>
-						)}
+						{filteredUsers().length + filteredProjects().length === 0 &&
+							!loading && (
+								<div className="text-center py-20">
+									<Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+									<h3 className="text-xl font-semibold text-gray-900 mb-2">
+										Tidak ada hasil ditemukan
+									</h3>
+									<p className="text-gray-600 mb-4">
+										Coba ubah kata kunci pencarian atau filter yang berbeda
+									</p>
+									<Button
+										onClick={() => {
+											setSearchQuery("");
+											setSelectedSkills([]);
+											setFilter("all");
+											loadInitialContent();
+										}}
+									>
+										Reset Pencarian
+									</Button>
+								</div>
+							)}
 					</>
 				)}
 			</div>

@@ -25,15 +25,23 @@ export default function LoginPage() {
 		setError("");
 
 		try {
-			const response = await login(email, password);
+			const res = await login(email, password);
 
-			// Store token in localStorage
-			localStorage.setItem("token", response.token);
+			// Normalize response shape from backend. Some backends return { access_token, user }
+			// others return { token, user } or similar. Be permissive.
+			const token = res?.token || res?.access_token || res?.accessToken;
+			const user = res?.user || res;
 
-			// Redirect based on role
-			if (response.user.role === "TEACHER") {
+			if (token) {
+				localStorage.setItem("token", token);
+			}
+
+			// Use role from user object in response (don't fetch again, that causes 401)
+			let role = user?.role;
+
+			if (role === "TEACHER") {
 				router.push("/dashboard/teacher");
-			} else if (response.user.role === "STUDENT") {
+			} else if (role === "STUDENT") {
 				router.push("/dashboard/student");
 			} else {
 				router.push("/search");

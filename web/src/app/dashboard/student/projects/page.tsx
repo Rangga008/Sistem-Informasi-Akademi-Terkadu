@@ -36,6 +36,9 @@ import {
 	Briefcase,
 } from "lucide-react";
 import { api, getCurrentUser } from "@/lib/api";
+import UnhighlightModal from "@/components/unhighlight-modal";
+import StatusModal from "@/components/status-modal";
+import ConfirmModal from "@/components/confirm-modal";
 
 interface Project {
 	id: string;
@@ -67,6 +70,7 @@ export default function StudentProjectsPage() {
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [skills, setSkills] = useState<Skill[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [saving, setSaving] = useState(false);
 	const [showCreateForm, setShowCreateForm] = useState(false);
 	const [editingProject, setEditingProject] = useState<Project | null>(null);
 	const [formData, setFormData] = useState({
@@ -81,6 +85,21 @@ export default function StudentProjectsPage() {
 	const [keywordInput, setKeywordInput] = useState("");
 	const [newSkill, setNewSkill] = useState("");
 	const [selectedImages, setSelectedImages] = useState<File[]>([]);
+	const [unhighlightModalOpen, setUnhighlightModalOpen] = useState(false);
+	const [currentHighlights, setCurrentHighlights] = useState<Project[]>([]);
+	const [pendingHighlightProjectId, setPendingHighlightProjectId] = useState<
+		string | null
+	>(null);
+	const [statusModal, setStatusModal] = useState({
+		open: false,
+		title: "",
+		description: "",
+	});
+	const [deleteModal, setDeleteModal] = useState({
+		open: false,
+		projectId: "",
+	});
+	const [deleting, setDeleting] = useState(false);
 	const router = useRouter();
 
 	useEffect(() => {
@@ -153,6 +172,50 @@ export default function StudentProjectsPage() {
 	};
 
 	const handleSaveProject = async () => {
+		if (saving) return; // prevent double submit
+
+		// Client-side duplicate title check for better UX
+		const normalizedTitle = formData.title.trim().toLowerCase();
+		if (!normalizedTitle) {
+			setStatusModal({
+				open: true,
+				title: "Judul wajib diisi",
+				description: "Silakan isi judul project terlebih dahulu.",
+			});
+			return;
+		}
+		if (!editingProject) {
+			const dupe = projects.some(
+				(p) => p.title.trim().toLowerCase() === normalizedTitle
+			);
+			if (dupe) {
+				setStatusModal({
+					open: true,
+					title: "Judul sudah digunakan",
+					description: "Judul project sudah ada. Gunakan judul lain.",
+				});
+				return;
+			}
+		} else {
+			const original = editingProject.title.trim().toLowerCase();
+			if (normalizedTitle !== original) {
+				const dupe = projects.some(
+					(p) =>
+						p.id !== editingProject.id &&
+						p.title.trim().toLowerCase() === normalizedTitle
+				);
+				if (dupe) {
+					setStatusModal({
+						open: true,
+						title: "Judul sudah digunakan",
+						description: "Judul project sudah ada. Gunakan judul lain.",
+					});
+					return;
+				}
+			}
+		}
+
+		setSaving(true);
 		try {
 			const formDataToSend = new FormData();
 			formDataToSend.append("title", formData.title);
@@ -193,19 +256,58 @@ export default function StudentProjectsPage() {
 
 			loadData(user!.id);
 			resetForm();
-		} catch (error) {
+		} catch (error: any) {
 			console.error("Failed to save project:", error);
+			// Check if it's the highlight limit error
+			if (
+				error?.response?.status === 403 &&
+				error?.response?.data?.currentHighlights
+			) {
+				setCurrentHighlights(error.response.data.currentHighlights);
+				setPendingHighlightProjectId(editingProject?.id || null);
+				setUnhighlightModalOpen(true);
+			} else if (error?.response?.status === 409) {
+				setStatusModal({
+					open: true,
+					title: "Judul sudah digunakan",
+					description: "Judul project sudah ada. Gunakan judul lain.",
+				});
+			} else {
+				setStatusModal({
+					open: true,
+					title: "Gagal menyimpan project",
+					description: String(
+						error?.response?.data?.message || error?.message || "Unknown error"
+					),
+				});
+			}
+		} finally {
+			setSaving(false);
 		}
 	};
 
-	const handleDeleteProject = async (projectId: string) => {
-		if (!confirm("Apakah Anda yakin ingin menghapus project ini?")) return;
+	const openDeleteConfirm = (projectId: string) => {
+		setDeleteModal({ open: true, projectId });
+	};
 
+	const confirmDeleteProject = async () => {
+		if (!deleteModal.projectId || !user) return;
+		setDeleting(true);
 		try {
-			await api.delete(`/projects/${projectId}`);
-			loadData(user!.id);
-		} catch (error) {
+			await api.delete(`/projects/${deleteModal.projectId}`);
+			setDeleteModal({ open: false, projectId: "" });
+			await loadData(user.id);
+		} catch (error: any) {
 			console.error("Failed to delete project:", error);
+			setStatusModal({
+				open: true,
+				title: "Gagal menghapus project",
+				description: String(
+					error?.response?.data?.message || error?.message || "Unknown error"
+				),
+			});
+		} finally {
+			setDeleting(false);
 		}
 	};
 
@@ -261,6 +363,19 @@ export default function StudentProjectsPage() {
 		setSelectedImages((prev) => prev.filter((_, i) => i !== index));
 	};
 
+	const handleUnhighlight = async (projectId: string) => {
+		await api.patch(`/projects/${projectId}`, { highlight: false });
+	};
+
+	const handleUnhighlightComplete = async () => {
+		// After unhighlighting, retry save
+		if (user) {
+			await loadData(user.id);
+			// Retry the save operation
+			await handleSaveProject();
+		}
+	};
+
 	if (loading) {
 		return (
 			<div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -298,7 +413,6 @@ export default function StudentProjectsPage() {
 					</div>
 				</div>
 			</div>
-
 			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 				{/* Skills Section */}
 				<Card className="mb-8">
@@ -398,6 +512,12 @@ export default function StudentProjectsPage() {
 													}))
 												}
 												className="rounded"
+												disabled={(() => {
+													const count = projects.filter(
+														(p) => p.highlight
+													).length;
+													return editingProject?.highlight ? false : count >= 3;
+												})()}
 											/>
 											<label
 												htmlFor="highlight"
@@ -406,6 +526,18 @@ export default function StudentProjectsPage() {
 												Project Highlight
 											</label>
 										</div>
+										{(() => {
+											const count = projects.filter((p) => p.highlight).length;
+											const disabled = editingProject?.highlight
+												? false
+												: count >= 3;
+											return disabled ? (
+												<p className="text-xs text-amber-600 mt-1">
+													Maksimal 3 project highlight. Unhighlight salah satu
+													untuk menambah.
+												</p>
+											) : null;
+										})()}
 									</div>
 
 									<div>
@@ -528,8 +660,12 @@ export default function StudentProjectsPage() {
 										<Button variant="outline" onClick={resetForm}>
 											Batal
 										</Button>
-										<Button onClick={handleSaveProject}>
-											{editingProject ? "Update" : "Simpan"}
+										<Button onClick={handleSaveProject} disabled={saving}>
+											{saving
+												? "Menyimpan..."
+												: editingProject
+												? "Update"
+												: "Simpan"}
 										</Button>
 									</div>
 								</div>
@@ -651,7 +787,7 @@ export default function StudentProjectsPage() {
 													<Button
 														variant="outline"
 														size="sm"
-														onClick={() => handleDeleteProject(project.id)}
+														onClick={() => openDeleteConfirm(project.id)}
 														className="text-red-600 hover:text-red-700 hover:border-red-300"
 													>
 														<Trash2 className="w-4 h-4" />
@@ -680,6 +816,30 @@ export default function StudentProjectsPage() {
 					</CardContent>
 				</Card>
 			</div>
+			<UnhighlightModal
+				open={unhighlightModalOpen}
+				onOpenChange={setUnhighlightModalOpen}
+				currentHighlights={currentHighlights}
+				onUnhighlight={handleUnhighlight}
+				onComplete={handleUnhighlightComplete}
+			/>
+			wrd
+			<ConfirmModal
+				open={deleteModal.open}
+				onOpenChange={(open) => setDeleteModal((prev) => ({ ...prev, open }))}
+				title="Hapus Project"
+				description="Apakah Anda yakin ingin menghapus project ini? Tindakan ini tidak dapat dibatalkan."
+				confirmText="Hapus"
+				cancelText="Batal"
+				onConfirm={confirmDeleteProject}
+				loading={deleting}
+			/>
+			<StatusModal
+				open={statusModal.open}
+				onOpenChange={(open) => setStatusModal((prev) => ({ ...prev, open }))}
+				title={statusModal.title}
+				description={statusModal.description}
+			/>
 		</div>
 	);
 }

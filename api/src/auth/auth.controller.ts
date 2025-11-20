@@ -48,4 +48,33 @@ export class AuthController {
   getProfile(@Request() req) {
     return req.user;
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('reset-password')
+  async resetPassword(
+    @Request() req,
+    @Body() body: { oldPassword: string; newPassword: string },
+  ) {
+    return this.authService.resetPasswordSelf(
+      req.user.id,
+      body.oldPassword,
+      body.newPassword,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('reset-password-admin')
+  async resetPasswordAdmin(
+    @Request() req,
+    @Body() body: { targetUserId: string; newPassword: string },
+  ) {
+    // Only teachers can reset other users' passwords
+    if (req.user.role !== 'TEACHER') {
+      throw new Error('Only teachers can reset passwords');
+    }
+    return this.authService.resetPasswordAdmin(
+      body.targetUserId,
+      body.newPassword,
+    );
+  }
 }

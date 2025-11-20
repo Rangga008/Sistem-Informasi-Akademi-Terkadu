@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" fill="none">
+  <rect width="800" height="600" rx="16" fill="#F3F4F6"/>
+  <rect x="48" y="48" width="704" height="504" rx="12" fill="#FFFFFF" stroke="#E5E7EB"/>
+  <g opacity="0.8">
+    <rect x="120" y="120" width="560" height="320" rx="8" fill="#F9FAFB" stroke="#E5E7EB"/>
+    <path d="M200 380L320 260L420 340L520 240L600 320" stroke="#D1D5DB" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="260" cy="220" r="28" fill="#E5E7EB"/>
+  </g>
+  <text x="400" y="520" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto" font-size="20" fill="#9CA3AF">Gambar tidak tersedia</text>
+</svg>

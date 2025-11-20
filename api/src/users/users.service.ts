@@ -20,19 +20,43 @@ export class UsersService {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    // Generate random password if not provided
+    const password =
+      createUserDto.password || Math.random().toString(36).slice(-8);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const { skills, ...restData } = createUserDto;
+
+    const data: any = {
+      ...restData,
+      password: hashedPassword,
+    };
+
+    // Handle skills if provided
+    if (skills && Array.isArray(skills) && skills.length > 0) {
+      data.skills = {
+        create: skills
+          .filter((skill) => skill && skill.trim())
+          .map((skill) => ({
+            name: skill.trim(),
+          })),
+      };
+    }
+
     return this.prisma.user.create({
-      data: {
-        ...createUserDto,
-        password: hashedPassword,
-      },
+      data,
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
         bio: true,
+        abilities: true,
         avatar: true,
+        skills: {
+          select: {
+            name: true,
+          },
+        },
         createdAt: true,
       },
     });
@@ -48,8 +72,13 @@ export class UsersService {
           name: true,
           role: true,
           bio: true,
+          abilities: true,
           avatar: true,
-          skills: true,
+          skills: {
+            select: {
+              name: true,
+            },
+          },
           projects: true,
           createdAt: true,
         },
@@ -63,8 +92,13 @@ export class UsersService {
           name: true,
           role: true,
           bio: true,
+          abilities: true,
           avatar: true,
-          skills: true,
+          skills: {
+            select: {
+              name: true,
+            },
+          },
           projects: true,
           createdAt: true,
         },
@@ -81,13 +115,18 @@ export class UsersService {
         name: true,
         role: true,
         bio: true,
+        abilities: true,
         avatar: true,
         github: true,
         linkedin: true,
         twitter: true,
         website: true,
         location: true,
-        skills: true,
+        skills: {
+          select: {
+            name: true,
+          },
+        },
         projects: true,
         createdAt: true,
       },
@@ -101,31 +140,70 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto, currentUser: any) {
-    // Users can update themselves, teachers can update anyone
-    if (currentUser.role !== 'TEACHER' && id !== currentUser.id) {
-      throw new ForbiddenException('Access denied');
-    }
+    try {
+      // Users can update themselves, teachers can update anyone
+      if (currentUser.role !== 'TEACHER' && id !== currentUser.id) {
+        throw new ForbiddenException('Access denied');
+      }
 
-    const data: any = { ...updateUserDto };
-    if (updateUserDto.password) {
-      data.password = await bcrypt.hash(updateUserDto.password, 10);
-    }
+      const data: any = {};
 
-    return this.prisma.user.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        bio: true,
-        avatar: true,
-        createdAt: true,
-      },
-    });
+      // Copy all fields except skills
+      Object.keys(updateUserDto).forEach((key) => {
+        if (key !== 'skills') {
+          data[key] = updateUserDto[key];
+        }
+      });
+
+      if (updateUserDto.password) {
+        data.password = await bcrypt.hash(updateUserDto.password, 10);
+      }
+
+      // Handle skills separately
+      if (updateUserDto.skills && Array.isArray(updateUserDto.skills)) {
+        // Delete all existing skills for this user
+        await this.prisma.skill.deleteMany({
+          where: { userId: id },
+        });
+
+        // Create new skills - don't include userId in nested create
+        const skillsToCreate = updateUserDto.skills
+          .filter((skill) => skill && skill.trim())
+          .map((skill) => ({
+            name: skill.trim(),
+          }));
+
+        if (skillsToCreate.length > 0) {
+          data.skills = {
+            create: skillsToCreate,
+          };
+        }
+      }
+
+      return this.prisma.user.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          bio: true,
+          abilities: true,
+          avatar: true,
+          skills: {
+            select: {
+              name: true,
+            },
+          },
+          createdAt: true,
+        },
+      });
+    } catch (error) {
+      console.error('[UsersService.update] Error:', error);
+      throw error;
+    }
   }
-
   async remove(id: string, currentUser: any) {
     // Only teachers can delete users
     if (currentUser.role !== 'TEACHER') {

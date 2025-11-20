@@ -1,11 +1,22 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { MailService } from '../mail/mail.service';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mailService: MailService,
+    private configService: ConfigService,
+  ) {}
 
   async create(
     createProjectDto: CreateProjectDto,
@@ -18,25 +29,78 @@ export class ProjectsService {
       throw new ForbiddenException('Access denied');
     }
 
+    // Prevent duplicate project titles (case-insensitive) per user
+    const incomingTitle = (createProjectDto.title || '').trim();
+    const existing = await this.prisma.project.findFirst({
+      where: {
+        userId,
+        title: { equals: incomingTitle, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      throw new ConflictException('Project dengan judul yang sama sudah ada');
+    }
+
+    // Check highlight limit on create: max 3 per user
+    if (createProjectDto.highlight) {
+      const currentHighlights = await this.prisma.project.findMany({
+        where: {
+          userId,
+          highlight: true,
+        },
+        select: {
+          id: true,
+          title: true,
+          thumbnail: true,
+          images: true,
+        },
+      });
+      if (currentHighlights.length >= 3) {
+        throw new ForbiddenException({
+          message: 'Maksimal 3 project highlight per siswa',
+          currentHighlights,
+        });
+      }
+    }
+
     // Set thumbnail to first image if images are provided
     const thumbnail = imageUrls.length > 0 ? imageUrls[0] : null;
 
-    return this.prisma.project.create({
-      data: {
-        ...createProjectDto,
-        images: imageUrls,
-        thumbnail,
-        userId,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
+    let project;
+    try {
+      project = await this.prisma.project.create({
+        data: {
+          ...createProjectDto,
+          title: incomingTitle,
+          images: imageUrls,
+          thumbnail,
+          userId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
           },
         },
-      },
-    });
+      });
+    } catch (e: any) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('Project dengan judul yang sama sudah ada');
+      }
+      throw e;
+    }
+
+    // Send notification to all followers
+    await this.notifyFollowersAboutNewProject(userId, project);
+
+    return project;
   }
 
   async findAll(userId?: string, highlight?: boolean) {
@@ -104,6 +168,54 @@ export class ProjectsService {
       throw new ForbiddenException('Access denied');
     }
 
+    // Check highlight limit: max 3 per user
+    if (updateProjectDto.highlight && !project.highlight) {
+      const currentHighlights = await this.prisma.project.findMany({
+        where: {
+          userId: project.userId,
+          highlight: true,
+          id: { not: id },
+        },
+        select: {
+          id: true,
+          title: true,
+          thumbnail: true,
+          images: true,
+        },
+      });
+
+      if (currentHighlights.length >= 3) {
+        throw new ForbiddenException({
+          message: 'Maksimal 3 project highlight per siswa',
+          currentHighlights,
+        });
+      }
+    }
+
+    // Prevent duplicate project titles on update (case-insensitive) per user
+    if (updateProjectDto.title) {
+      const incomingTitle = updateProjectDto.title.trim();
+      const isTitleChanged =
+        incomingTitle.localeCompare(project.title, undefined, {
+          sensitivity: 'accent',
+        }) !== 0;
+      if (isTitleChanged) {
+        const existing = await this.prisma.project.findFirst({
+          where: {
+            userId: project.userId,
+            title: { equals: incomingTitle, mode: 'insensitive' },
+            id: { not: id },
+          },
+          select: { id: true },
+        });
+        if (existing) {
+          throw new ConflictException(
+            'Project dengan judul yang sama sudah ada',
+          );
+        }
+      }
+    }
+
     // Merge existing images with new ones if provided
     const updatedImages = imageUrls.length > 0 ? imageUrls : project.images;
     // Update thumbnail if new images are provided
@@ -111,22 +223,35 @@ export class ProjectsService {
 
     const data = {
       ...updateProjectDto,
+      ...(updateProjectDto.title
+        ? { title: updateProjectDto.title.trim() }
+        : {}),
       images: updatedImages,
       thumbnail,
     };
 
-    return this.prisma.project.update({
-      where: { id },
-      data,
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
+    try {
+      return await this.prisma.project.update({
+        where: { id },
+        data,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
           },
         },
-      },
-    });
+      });
+    } catch (e: any) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('Project dengan judul yang sama sudah ada');
+      }
+      throw e;
+    }
   }
 
   async remove(id: string, currentUser: any) {
@@ -177,19 +302,8 @@ export class ProjectsService {
   }
 
   async search(query: string) {
-    // Comprehensive search across all projects (not just highlight)
-    const where: any = {};
-
-    if (query && query.trim()) {
-      where.OR = [
-        { title: { contains: query, mode: 'insensitive' } },
-        { description: { contains: query, mode: 'insensitive' } },
-        { keywords: { hasSome: [query] } },
-      ];
-    }
-
-    return this.prisma.project.findMany({
-      where,
+    // Get all projects and filter in-memory for case-insensitive search
+    const allProjects = await this.prisma.project.findMany({
       include: {
         user: {
           select: {
@@ -203,5 +317,66 @@ export class ProjectsService {
         createdAt: 'desc',
       },
     });
+
+    if (!query || !query.trim()) {
+      return allProjects;
+    }
+
+    const lowerQuery = query.toLowerCase();
+    return allProjects.filter((project) => {
+      return (
+        project.title.toLowerCase().includes(lowerQuery) ||
+        project.description.toLowerCase().includes(lowerQuery) ||
+        (project.keywords &&
+          project.keywords.some((keyword) =>
+            keyword.toLowerCase().includes(lowerQuery),
+          ))
+      );
+    });
+  }
+
+  private async notifyFollowersAboutNewProject(userId: string, project: any) {
+    try {
+      // Get all followers of the user
+      const followers = await this.prisma.follow.findMany({
+        where: {
+          followingId: userId,
+        },
+        include: {
+          follower: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      // Get the uploader info
+      const uploader = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+
+      const projectUrl = `${this.configService.get('FRONTEND_URL', 'http://localhost:3000')}/project/${project.id}`;
+
+      // Send email to each follower
+      const emailPromises = followers.map((follow) =>
+        this.mailService.sendNewProjectNotification(
+          follow.follower.email,
+          follow.follower.name,
+          uploader?.name || 'Someone',
+          project.title,
+          project.description,
+          projectUrl,
+        ),
+      );
+
+      await Promise.all(emailPromises);
+    } catch (error) {
+      console.error('Error notifying followers:', error);
+      // Don't throw error, just log it so project creation continues
+    }
   }
 }

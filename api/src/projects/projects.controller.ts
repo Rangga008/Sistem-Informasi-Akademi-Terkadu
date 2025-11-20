@@ -77,6 +77,17 @@ export class ProjectsController {
     return this.projectsService.findAll(userId, highlightBool);
   }
 
+  @Get('search/keywords')
+  searchByKeywords(@Query('keywords') keywords: string) {
+    const keywordsArray = keywords ? keywords.split(',') : [];
+    return this.projectsService.searchByKeywords(keywordsArray);
+  }
+
+  @Get('search')
+  search(@Query('q') query: string) {
+    return this.projectsService.search(query);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req?) {
     // Make project details public for viewing, but pass user if authenticated
@@ -130,16 +141,5 @@ export class ProjectsController {
   @Delete(':id')
   remove(@Param('id') id: string, @Request() req) {
     return this.projectsService.remove(id, req.user);
-  }
-
-  @Get('search/keywords')
-  searchByKeywords(@Query('keywords') keywords: string) {
-    const keywordsArray = keywords ? keywords.split(',') : [];
-    return this.projectsService.searchByKeywords(keywordsArray);
-  }
-
-  @Get('search')
-  search(@Query('q') query: string) {
-    return this.projectsService.search(query);
   }
 }

@@ -1,4 +1,10 @@
-import { IsEmail, IsString, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsArray,
+} from 'class-validator';
 
 enum Role {
   STUDENT = 'STUDENT',
@@ -9,8 +15,9 @@ export class CreateUserDto {
   @IsEmail()
   email: string;
 
+  @IsOptional()
   @IsString()
-  password: string;
+  password?: string;
 
   @IsString()
   name: string;
@@ -46,4 +53,13 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsString()
+  abilities?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  skills?: string[];
 }

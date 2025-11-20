@@ -40,18 +40,32 @@ export default function Navbar() {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 	const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
+	const [tokenDebug, setTokenDebug] = useState<string>("");
 	const router = useRouter();
 	const pathname = usePathname();
 
 	const checkAuth = async () => {
 		try {
 			const token = localStorage.getItem("token");
+			const tokenPreview = token ? `${token.slice(0, 15)}...` : "NO_TOKEN";
+			setTokenDebug(tokenPreview);
 			if (token) {
-				const userData = await getCurrentUser();
-				setUser(userData);
+				try {
+					const userData = await getCurrentUser();
+					setUser(userData);
+				} catch (authError: any) {
+					// 401 is expected if token is invalid or expired; don't crash navbar
+					if (authError.response?.status === 401) {
+						setUser(null);
+					} else {
+						// Re-throw unexpected errors
+						throw authError;
+					}
+				}
 			}
 		} catch (error) {
-			console.error("Auth check failed:", error);
+			// eslint-disable-next-line no-console
+			console.error("[navbar] Auth check failed:", error);
 		}
 	};
 

@@ -48,12 +48,17 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
     @Request() req,
   ) {
-    return this.usersService.update(id, updateUserDto, req.user);
+    try {
+      return await this.usersService.update(id, updateUserDto, req.user);
+    } catch (error) {
+      console.error('[UsersController.update] Error:', error);
+      throw error;
+    }
   }
 
   @UseGuards(JwtAuthGuard)
